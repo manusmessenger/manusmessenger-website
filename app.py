@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
 from flask_socketio import SocketIO, emit, join_room
 from datetime import datetime, timedelta
 import uuid
@@ -19,8 +19,8 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi', 'pdf', 'doc', 'docx', 'txt', 'zip', 'rar'}
 
 # Admin credentials (In production, use environment variables and proper authentication)
-ADMIN_USERNAME = 'myusername'
-ADMIN_PASSWORD = 'MySecurePassword123'  # Change this in production!
+ADMIN_USERNAME = 'abhishek'
+ADMIN_PASSWORD = 'abhishek2630@'  # Change this in production!
 ADMIN_TOKEN = None
 
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -320,7 +320,7 @@ def notify_story_owner_view_count(story_id, story_owner_id):
 
 @app.route('/admin')
 def admin_panel():
-    return send_file('admin.html')
+    return render_template('admin.html')
 
 @app.route('/admin/login', methods=['POST'])
 def admin_login():
@@ -699,7 +699,7 @@ def get_recent_chats():
 
 @app.route('/')
 def index():
-    return send_file('index.html')
+    return render_template('index.html')
 
 @app.route('/register', methods=['POST'])
 def register():

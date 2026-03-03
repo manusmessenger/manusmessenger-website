@@ -19,8 +19,8 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi', 'pdf', 'doc', 'docx', 'txt', 'zip', 'rar'}
 
 # Admin credentials (In production, use environment variables and proper authentication)
-ADMIN_USERNAME = 'abhishek'
-ADMIN_PASSWORD = 'abhishek2630@'  # Change this in production!
+ADMIN_USERNAME = 'myusername'
+ADMIN_PASSWORD = 'MySecurePassword123'  # Change this in production!
 ADMIN_TOKEN = None
 
 socketio = SocketIO(app, cors_allowed_origins="*")

@@ -50,7 +50,7 @@ def check_inactive_users():
         try:
             time.sleep(30)
 
-            current_time = datetime.now()
+            current_time = datetime.utcnow()
             users_to_mark_offline = []
 
             for user_id in list(online_users):
@@ -72,7 +72,7 @@ def check_inactive_users():
             for user_id in users_to_mark_offline:
                 if user_id in online_users:
                     online_users.discard(user_id)
-                    user_last_seen[user_id] = datetime.now().isoformat()
+                    user_last_seen[user_id] = datetime.utcnow().isoformat()
 
                     if user_id in users:
                         users[user_id]['status'] = 'offline'
@@ -112,7 +112,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def generate_admin_token():
-    return hashlib.sha256(f"{ADMIN_USERNAME}{datetime.now().isoformat()}".encode()).hexdigest()
+    return hashlib.sha256(f"{ADMIN_USERNAME}{datetime.utcnow().isoformat()}".encode()).hexdigest()
 
 def require_admin(f):
     @wraps(f)
@@ -128,7 +128,7 @@ def require_admin(f):
 
 def log_admin_activity(action, details=''):
     admin_activity.append({
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': datetime.utcnow().isoformat(),
         'action': action,
         'details': details
     })
@@ -143,7 +143,7 @@ def get_room_id(uid1, uid2):
 
 def update_user_chat_list(user_id, other_user_id, timestamp=None):
     if not timestamp:
-        timestamp = datetime.now()
+        timestamp = datetime.utcnow()
     user_chats[user_id] = [(pid, t) for (pid, t) in user_chats[user_id] if pid != other_user_id]
     user_chats[user_id].insert(0, (other_user_id, timestamp))
     if len(user_chats[user_id]) > 50:
@@ -408,7 +408,7 @@ def get_user_details_admin(user_id):
 def get_user_stories(user_id):
     if user_id not in users:
         return jsonify({'error': 'User not found'}), 404
-    current_time = datetime.now()
+    current_time = datetime.utcnow()
     active_stories = []
     if user_id in user_stories:
         for story in user_stories[user_id]:
@@ -430,7 +430,7 @@ def get_user_stories(user_id):
 @app.route('/admin/stories/all', methods=['GET'])
 @require_admin
 def get_all_stories():
-    current_time = datetime.now()
+    current_time = datetime.utcnow()
     all_active_stories = {}
     for user_id, stories in user_stories.items():
         if user_id in users:
@@ -492,7 +492,7 @@ def suspend_user(user_id):
     online_users.discard(user_id)
 
     # 4. Record last seen timestamp
-    user_last_seen[user_id] = datetime.now().isoformat()
+    user_last_seen[user_id] = datetime.utcnow().isoformat()
 
     # 5. Broadcast the status change to ALL admin sessions so the table updates live
     for admin_sid in admin_sessions:
@@ -584,7 +584,7 @@ def delete_user(user_id):
 @require_admin
 def get_analytics():
     period = request.args.get('period', 'daily')
-    now = datetime.now()
+    now = datetime.utcnow()
     data = []
     labels = []
     if period == 'daily':
@@ -726,7 +726,7 @@ def register():
     user_id = str(uuid.uuid4())[:8]
     users[user_id] = {
         'username': username,
-        'created_at': datetime.now().isoformat(),
+        'created_at': datetime.utcnow().isoformat(),
         'email': email,
         'password_hash': hash_password(password),
         'status': 'offline'
@@ -869,7 +869,7 @@ def search_users(query):
 
 @app.route('/get_stories', methods=['GET'])
 def get_stories():
-    current_time = datetime.now()
+    current_time = datetime.utcnow()
     active_stories = {}
     for user_id, stories in user_stories.items():
         active_stories[user_id] = [
@@ -891,7 +891,7 @@ def handle_admin_connected(data):
     if token == ADMIN_TOKEN:
         admin_sessions.add(request.sid)
         print(f"🛡️ Admin connected: {request.sid}")
-        current_time = datetime.now()
+        current_time = datetime.utcnow()
         active_stories = {}
         for user_id, stories in user_stories.items():
             active_stories[user_id] = []
@@ -920,8 +920,8 @@ def handle_set_user(data):
         user_active_tabs[user_id] = user_active_tabs.get(user_id, 0) + 1
         if user_id not in online_users:
             online_users.add(user_id)
-            user_last_seen[user_id] = datetime.now().isoformat()
-            user_last_active[user_id] = datetime.now()
+            user_last_seen[user_id] = datetime.utcnow().isoformat()
+            user_last_active[user_id] = datetime.utcnow()
             users[user_id]['status'] = 'online'
             update_user_status(user_id, 'online')
             for admin_sid in admin_sessions:
@@ -934,7 +934,7 @@ def handle_set_user(data):
         emit('chat_list_updated', {'chats': all_users})
         total_unread = sum(unread_counts[user_id].values())
         emit('unread_count_updated', {'total_unread': total_unread})
-        current_time = datetime.now()
+        current_time = datetime.utcnow()
         active_stories = {}
         for uid, stories in user_stories.items():
             active_stories[uid] = []
@@ -959,8 +959,8 @@ def handle_user_active(data):
         if users.get(user_id, {}).get('status') == 'suspended':
             emit('account_suspended', {'message': 'Your account has been suspended by an administrator'})
             return
-        user_last_active[user_id] = datetime.now()
-        user_last_seen[user_id] = datetime.now().isoformat()
+        user_last_active[user_id] = datetime.utcnow()
+        user_last_seen[user_id] = datetime.utcnow().isoformat()
         if user_id not in online_users:
             online_users.add(user_id)
             if user_id in users:
@@ -976,7 +976,7 @@ def handle_user_active(data):
 def handle_user_inactive(data):
     user_id = user_sessions.get(request.sid)
     if user_id:
-        user_last_seen[user_id] = datetime.now().isoformat()
+        user_last_seen[user_id] = datetime.utcnow().isoformat()
 
 @socketio.on('user_going_offline')
 def handle_user_going_offline(data):
@@ -1030,7 +1030,7 @@ def handle_message(data):
         'receiver': target_id,
         'type': message_type,
         'text': text,
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': datetime.utcnow().isoformat(),
         'read': False
     }
     if message_type in ['image', 'video', 'file'] and file_data:
@@ -1038,7 +1038,7 @@ def handle_message(data):
     messages[room].append(msg)
     if len(messages[room]) > 100:
         messages[room] = messages[room][-100:]
-    timestamp = datetime.now()
+    timestamp = datetime.utcnow()
     update_user_chat_list(user_id, target_id, timestamp)
     update_user_chat_list(target_id, user_id, timestamp)
     increment_unread_count(target_id, user_id)
@@ -1071,7 +1071,7 @@ def handle_add_story(data):
         'user_id': user_id,
         'file_data': data.get('file_data'),
         'type': data.get('type'),
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': datetime.utcnow().isoformat(),
         'view_count': 0
     }
     if not story['file_data'] or not story['type']:
@@ -1138,7 +1138,7 @@ def handle_disconnect():
             if not user_to_sid[user_id]:
                 del user_to_sid[user_id]
                 online_users.discard(user_id)
-                user_last_seen[user_id] = datetime.now().isoformat()
+                user_last_seen[user_id] = datetime.utcnow().isoformat()
                 # Only set offline if not suspended
                 if user_id in users and users[user_id].get('status') != 'suspended':
                     users[user_id]['status'] = 'offline'

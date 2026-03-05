@@ -2694,8 +2694,8 @@
                     <h4 style="color:#a78bfa; margin:0 0 14px; font-size:14px; display:flex; align-items:center; gap:10px;">
                         <span style="background:rgba(124,58,237,0.2); border:1px solid rgba(124,58,237,0.4); border-radius:6px; padding:2px 10px; font-size:13px;">6</span> Account Deletion
                     </h4>
-                    <p style="margin:0;">Users may request account deletion by contacting: 📧 <a href="mailto:ManusMessenger@gmail.com" style="color:#a78bfa; text-decoration:none;">ManusMessenger@gmail.com</a>. Upon verified request, we will delete personal data unless required
-                        to retain it for legal or security reasons.</p>
+                    <p style="margin:0;">Users may request account deletion by contacting: 📧 <a href="/cdn-cgi/l/email-protection#7d301c13080e30180e0e18131a180f3d1a101c1411531e1210" style="color:#a78bfa; text-decoration:none;"><span class="__cf_email__" data-cfemail="bdf0dcd3c8cef0d8ceced8d3dad8cffddad0dcd4d193ded2d0">[email&#160;protected]</span></a>.
+                        Upon verified request, we will delete personal data unless required to retain it for legal or security reasons.</p>
                 </div>
                 <div style="margin-bottom:24px;">
                     <h4 style="color:#a78bfa; margin:0 0 14px; font-size:14px; display:flex; align-items:center; gap:10px;">
@@ -2715,7 +2715,7 @@
                     </h4>
                     <div style="background:rgba(167,139,250,0.07); border:1px solid rgba(167,139,250,0.2); border-radius:12px; padding:18px;">
                         <p style="margin:0 0 8px; color:#ccc;">If you have questions regarding this Privacy Policy, contact us at:</p>
-                        <p style="margin:0 0 6px;">📧 Email: <a href="mailto:ManusMessenger@gmail.com" style="color:#a78bfa; text-decoration:none;">ManusMessenger@gmail.com</a></p>
+                        <p style="margin:0 0 6px;">📧 Email: <a href="/cdn-cgi/l/email-protection#92dff3fce7e1dff7e1e1f7fcf5f7e0d2f5fff3fbfebcf1fdff" style="color:#a78bfa; text-decoration:none;"><span class="__cf_email__" data-cfemail="b8f5d9d6cdcbf5ddcbcbddd6dfddcaf8dfd5d9d1d496dbd7d5">[email&#160;protected]</span></a></p>
                         <p style="margin:0;">🌐 Website: <a href="http://ManusMessenger.com" style="color:#a78bfa; text-decoration:none;">ManusMessenger.com</a></p>
                     </div>
                 </div>
@@ -2723,6 +2723,7 @@
         </div>
     </div>
 
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <script>
         let socket = null;
@@ -3318,7 +3319,7 @@
                 timeline.innerHTML = `<div class="history-empty"><i class="fas fa-filter"></i><p>No ${currentHistoryFilter} messages found</p></div>`;
                 return;
             }
-            filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            filtered.sort((a, b) => new Date((b.timestamp.endsWith('Z') ? b.timestamp : b.timestamp + 'Z')) - new Date((a.timestamp.endsWith('Z') ? a.timestamp : a.timestamp + 'Z')));
             timeline.innerHTML = filtered.map(msg => {
                         const otherUserId = msg.sender === myUserId ? msg.receiver : msg.sender;
                         const otherUsername = allUsers[otherUserId] && allUsers[otherUserId].username || 'User';
@@ -3429,7 +3430,8 @@
             }
             const time = document.createElement('div');
             time.className = 'message-time';
-            const date = new Date(msg.timestamp);
+            const utcTs = msg.timestamp && !msg.timestamp.endsWith('Z') ? msg.timestamp + 'Z' : msg.timestamp;
+            const date = new Date(utcTs);
             const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             time.textContent = isSent ? `${timeStr} ${msg.read ? '✓✓' : '✓'}` : timeStr;
             wrapper.appendChild(content);
@@ -3450,7 +3452,12 @@
 
         function formatTime(timestamp) {
             if (!timestamp) return 'Just now';
-            const date = new Date(timestamp);
+            // Append 'Z' if missing so JS treats the timestamp as UTC (not local time).
+            // Python's datetime.utcnow().isoformat() produces "2026-03-05T03:37:00"
+            // without a timezone suffix — browsers parse that as local time, causing
+            // a timezone offset (e.g. +5:30 IST). Adding 'Z' forces correct UTC parsing.
+            const utcTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z';
+            const date = new Date(utcTimestamp);
             const now = new Date();
             const diffMs = now - date;
             const diffMins = Math.floor(diffMs / 60000);

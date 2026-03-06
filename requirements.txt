@@ -1,4 +1,7 @@
-Flask
-Flask-SocketIO
+flask
+flask-socketio
 eventlet
 gunicorn
+supabase
+psycopg2-binary
+python-dotenv

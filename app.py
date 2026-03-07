@@ -15,7 +15,7 @@ import hashlib
 from functools import wraps
 import threading
 import time
-from supabase import create_client, Client
+from supabase import create_client, Client # type: ignore
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')

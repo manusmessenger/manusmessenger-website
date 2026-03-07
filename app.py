@@ -149,10 +149,16 @@ def db_insert_message(msg):
         return None
 
 def db_get_active_stories():
-    """Load all stories from the last 24 hours from Supabase into runtime cache."""
+    """Load stories (last 24 h) from Supabase.
+    Populates the global user_stories cache AND returns the same dict
+    so callers can use the result directly without touching the global.
+    """
     try:
         cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        res = supabase.table('stories').select('*').gte('created_at', cutoff).order('created_at', desc=False).execute()
+        res = supabase.table('stories').select('*') \
+            .gte('created_at', cutoff) \
+            .order('created_at', desc=False) \
+            .execute()
         user_stories.clear()
         for row in res.data:
             uid = next((u for u, ud in users.items() if ud['username'] == row['username']), None)
@@ -174,6 +180,8 @@ def db_get_active_stories():
         print(f"✅ Loaded stories for {len(user_stories)} users from Supabase")
     except Exception as e:
         print(f"❌ db_get_active_stories error: {e}")
+    # Always return the (possibly partially-filled) global cache dict
+    return dict(user_stories)
 
 def db_insert_story(uid, story):
     """Persist a story to Supabase. Returns the Supabase-generated UUID."""
@@ -224,6 +232,7 @@ def db_get_user_story_count(user_id):
 
 # ==================== STARTUP ====================
 db_get_all_users()
+db_get_active_stories()   # Pre-load stories so they survive Render cold-starts
 
 # ==================== BACKGROUND TASK ====================
 
@@ -879,7 +888,7 @@ def register():
     data     = request.json
     username = data.get('username', '').strip()
     email    = data.get('email', '').strip().lower()
-    password = data.get('password', '')
+    password = data.get('password', '').strip()  # trim so hash always matches login
     if not username or len(username) < 2:
         return jsonify({'error': 'Username must be at least 2 characters'}), 400
     if not email or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', email):
@@ -941,7 +950,7 @@ def register():
 def login():
     data     = request.json
     username = data.get('username', '').strip()
-    password = data.get('password', '')
+    password = data.get('password', '').strip()   # trim to prevent whitespace hash mismatch
     if not username or not password:
         return jsonify({'error': 'Username and password required'}), 400
     try:
@@ -1130,8 +1139,8 @@ def handle_admin_connected(data):
         print(f"🛡️ Admin connected: {request.sid}")
         db_get_active_stories()
         active_stories = {
-            uid: [dict(s, view_count=len(story_views.get(s['id'], set()))) for s in stories]
-            for uid, stories in user_stories.items()
+            uid: [dict(s, view_count=len(story_views.get(s['id'], set()))) for s in story_list]
+            for uid, story_list in user_stories.items()
         }
         socketio.emit('admin_stories_update', {
             'stories': active_stories,
@@ -1174,13 +1183,13 @@ def handle_set_user(data):
         notify_existing_users_to_new_user(user_id)
         emit('chat_list_updated', {'chats': get_all_users_for_user(user_id)})
         emit('unread_count_updated', {'total_unread': sum(unread_counts[user_id].values())})
-        # Load stories from DB
+        # Always reload stories from Supabase so restarts don't lose them
         db_get_active_stories()
         active_stories = {
-            uid: [dict(s, view_count=len(story_views.get(s['id'], set()))) for s in stories]
-            for uid, stories in user_stories.items()
+            uid: [dict(s, view_count=len(story_views.get(s['id'], set()))) for s in story_list]
+            for uid, story_list in user_stories.items()
         }
-        views_dict = {sid: list(viewers) for sid, viewers in story_views.items()}
+        views_dict = {story_id: list(viewers) for story_id, viewers in story_views.items()}
         emit('existing_stories', {'stories': active_stories, 'views': views_dict})
         emit('connection_established', {'user_id': user_id})
 
@@ -1225,9 +1234,8 @@ def handle_join_chat(data):
         return
     room = get_room_id(user_id, target_id)
     join_room(room)
-    # Load from DB if not in runtime cache
-    if not messages[room]:
-        messages[room] = db_get_messages_for_room(user_id, target_id)
+    # Always reload from Supabase — guarantees history survives server restarts
+    messages[room] = db_get_messages_for_room(user_id, target_id)
     mark_messages_as_read(user_id, target_id)
     update_user_chat_list(user_id, target_id)
     emit('chat_history', {
@@ -1275,10 +1283,9 @@ def handle_message(data):
             db_insert_file(user_id, file_data)
         except Exception:
             pass
-    # Update runtime cache
+    # Update runtime cache for this session only.
+    # Permanent storage is Supabase; join_chat always reloads from DB on reconnect.
     messages[room].append(msg)
-    if len(messages[room]) > 100:
-        messages[room] = messages[room][-100:]
     timestamp = datetime.utcnow()
     update_user_chat_list(user_id, target_id, timestamp)
     update_user_chat_list(target_id, user_id, timestamp)

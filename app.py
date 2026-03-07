@@ -15,7 +15,7 @@ import hashlib
 from functools import wraps
 import threading
 import time
-from supabase import create_client, Client # type: ignore
+from supabase import create_client, Client
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
@@ -76,6 +76,7 @@ def db_get_all_users():
                 'password_hash': row.get('password', ''),
                 'status':        'suspended' if row.get('suspended') else 'offline',
                 'suspended':     row.get('suspended', False),
+                'public_id':     row.get('public_id', ''),
             }
         print(f"✅ Loaded {len(users)} users from Supabase")
     except Exception as e:
@@ -266,6 +267,16 @@ print("🔄 Background inactive user checker started")
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+def generate_public_id():
+    """Generate a random 7-character human-friendly public user ID e.g. storm82, f8k2mqa"""
+    import random, string
+    chars = string.ascii_lowercase + string.digits
+    while True:
+        pid = ''.join(random.choice(chars) for _ in range(7))
+        # Ensure it starts with a letter for readability
+        if pid[0].isalpha():
+            return pid
 
 def generate_admin_token():
     return hashlib.sha256(f"{ADMIN_USERNAME}{datetime.utcnow().isoformat()}".encode()).hexdigest()
@@ -885,10 +896,25 @@ def register():
     except Exception as e:
         return jsonify({'error': f'DB error: {e}'}), 500
     user_id    = None
+    public_id  = None
     created_at = datetime.utcnow().isoformat()
     pw_hash    = hash_password(password)
+    # Generate a unique public_id — retry if collision (extremely rare)
+    for _ in range(5):
+        candidate = generate_public_id()
+        try:
+            pid_check = supabase.table('users').select('id').eq('public_id', candidate).execute()
+            if not pid_check.data:
+                public_id = candidate
+                break
+        except Exception:
+            public_id = candidate
+            break
+    if not public_id:
+        public_id = generate_public_id()
     try:
         res = supabase.table('users').insert({
+            'public_id':  public_id,
             'username':   username,
             'email':      email,
             'password':   pw_hash,
@@ -906,9 +932,10 @@ def register():
         'password_hash': pw_hash,
         'status':        'offline',
         'suspended':     False,
+        'public_id':     public_id,
     }
     notify_new_user_to_all(user_id, username)
-    return jsonify({'user_id': user_id, 'username': username, 'email': email, 'created_at': created_at})
+    return jsonify({'user_id': user_id, 'public_id': public_id, 'username': username, 'email': email, 'created_at': created_at})
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -938,9 +965,11 @@ def login():
         'password_hash': row.get('password', ''),
         'status':        'offline',
         'suspended':     row.get('suspended', False),
+        'public_id':     row.get('public_id', ''),
     }
     return jsonify({
         'user_id':    user_id,
+        'public_id':  row.get('public_id', ''),
         'username':   row['username'],
         'email':      row.get('email'),
         'created_at': row.get('created_at')
@@ -967,23 +996,33 @@ def change_password():
 def reset_password():
     data         = request.json
     username     = data.get('username', '').strip()
-    user_id      = data.get('user_id', '').strip()
+    public_id    = data.get('user_id', '').strip()   # frontend sends "user_id" field (public_id value)
     new_password = data.get('new_password')
     if not username:
         return jsonify({'error': 'Username is required'}), 400
-    if not user_id:
+    if not public_id:
         return jsonify({'error': 'User ID is required'}), 400
     if not new_password or len(new_password) < 6:
         return jsonify({'error': 'New password must be at least 6 characters'}), 400
-    if user_id in users and users[user_id]['username'].lower() == username.lower():
-        new_hash = hash_password(new_password)
-        try:
-            supabase.table('users').update({'password': new_hash}).eq('id', user_id).execute()
-            users[user_id]['password_hash'] = new_hash
-        except Exception as e:
-            return jsonify({'error': f'DB error: {e}'}), 500
-        return jsonify({'success': True, 'message': 'Password reset successfully'})
-    return jsonify({'error': 'Username and User ID do not match.'}), 404
+    # Look up by public_id from DB
+    try:
+        res = supabase.table('users').select('*').eq('public_id', public_id).execute()
+        if not res.data:
+            return jsonify({'error': 'Username and User ID do not match.'}), 404
+        row = res.data[0]
+    except Exception as e:
+        return jsonify({'error': f'DB error: {e}'}), 500
+    if row['username'].lower() != username.lower():
+        return jsonify({'error': 'Username and User ID do not match.'}), 404
+    new_hash = hash_password(new_password)
+    internal_id = row['id']
+    try:
+        supabase.table('users').update({'password': new_hash}).eq('id', internal_id).execute()
+        if internal_id in users:
+            users[internal_id]['password_hash'] = new_hash
+    except Exception as e:
+        return jsonify({'error': f'DB error: {e}'}), 500
+    return jsonify({'success': True, 'message': 'Password reset successfully'})
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -1060,9 +1099,12 @@ def search_users(query):
     matches = []
     for uid, data in users.items():
         if not data.get('suspended') and data.get('status') != 'suspended':
-            if query_lower in uid.lower() or query_lower in data['username'].lower():
+            public_id = data.get('public_id', '')
+            if (query_lower in data['username'].lower() or
+                query_lower in public_id.lower()):
                 matches.append({
                     'user_id':   uid,
+                    'public_id': public_id,
                     'username':  data['username'],
                     'status':    get_user_status(uid),
                     'last_seen': user_last_seen.get(uid)
@@ -1110,6 +1152,7 @@ def handle_set_user(data):
                 'password_hash': row.get('password', ''),
                 'status':        'suspended' if row.get('suspended') else 'offline',
                 'suspended':     row.get('suspended', False),
+                'public_id':     row.get('public_id', ''),
             }
     if user_id and user_id in users:
         if users[user_id].get('suspended') or users[user_id].get('status') == 'suspended':

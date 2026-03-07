@@ -128,10 +128,9 @@ def db_get_messages_for_room(uid1, uid2):
         return []
 
 def db_insert_message(msg):
-    """Persist a message to Supabase."""
+    """Persist a message to Supabase. Returns the Supabase-generated UUID."""
     try:
         row = {
-            'id':           msg['id'],
             'sender':       msg['sender'],
             'receiver':     msg['receiver'],
             'message_type': msg.get('type', 'text'),
@@ -141,9 +140,12 @@ def db_insert_message(msg):
         }
         if msg.get('file_data'):
             row['file_data'] = json.dumps(msg['file_data'])
-        supabase.table('messages').insert(row).execute()
+        res = supabase.table('messages').insert(row).execute()
+        # Return the UUID Supabase generated so the runtime msg can be updated
+        return res.data[0]['id'] if res.data else None
     except Exception as e:
         print(f"❌ db_insert_message error: {e}")
+        return None
 
 def db_get_active_stories():
     """Load all stories from the last 24 hours from Supabase into runtime cache."""
@@ -173,27 +175,27 @@ def db_get_active_stories():
         print(f"❌ db_get_active_stories error: {e}")
 
 def db_insert_story(uid, story):
-    """Persist a story to Supabase."""
+    """Persist a story to Supabase. Returns the Supabase-generated UUID."""
     try:
         username = users.get(uid, {}).get('username', '')
         file_url = story['file_data']['url'] if story.get('file_data') else ''
-        supabase.table('stories').insert({
-            'id':         story['id'],
+        res = supabase.table('stories').insert({
             'username':   username,
             'story_url':  file_url,
             'file_type':  story.get('type', 'image'),
             'filename':   story['file_data'].get('filename', '') if story.get('file_data') else '',
             'created_at': story['timestamp'],
         }).execute()
+        return res.data[0]['id'] if res.data else None
     except Exception as e:
         print(f"❌ db_insert_story error: {e}")
+        return None
 
 def db_insert_file(uid, file_data):
-    """Persist a file record to Supabase."""
+    """Persist a file record to Supabase. Supabase auto-generates the UUID."""
     try:
         username = users.get(uid, {}).get('username', '')
         supabase.table('files').insert({
-            'id':         str(uuid.uuid4()),
             'username':   username,
             'file_url':   file_data.get('url', ''),
             'created_at': datetime.utcnow().isoformat(),
@@ -882,18 +884,19 @@ def register():
             return jsonify({'error': 'Email already registered'}), 409
     except Exception as e:
         return jsonify({'error': f'DB error: {e}'}), 500
-    user_id    = str(uuid.uuid4())[:8]
+    user_id    = None
     created_at = datetime.utcnow().isoformat()
     pw_hash    = hash_password(password)
     try:
-        supabase.table('users').insert({
-            'id':         user_id,
+        res = supabase.table('users').insert({
             'username':   username,
             'email':      email,
             'password':   pw_hash,
             'suspended':  False,
             'created_at': created_at,
         }).execute()
+        # Read the UUID that Supabase auto-generated
+        user_id = res.data[0]['id']
     except Exception as e:
         return jsonify({'error': f'DB error: {e}'}), 500
     users[user_id] = {
@@ -1210,7 +1213,7 @@ def handle_message(data):
         return
     room = get_room_id(user_id, target_id)
     msg = {
-        'id':        str(uuid.uuid4()),
+        'id':        str(uuid.uuid4()),  # temporary local ID for runtime/emit
         'sender':    user_id,
         'receiver':  target_id,
         'type':      message_type,
@@ -1220,8 +1223,10 @@ def handle_message(data):
     }
     if message_type in ['image', 'video', 'file'] and file_data:
         msg['file_data'] = file_data
-    # Persist to Supabase
-    db_insert_message(msg)
+    # Persist to Supabase and update msg id with the real UUID
+    db_id = db_insert_message(msg)
+    if db_id:
+        msg['id'] = db_id
     if message_type in ['image', 'video', 'file'] and file_data:
         try:
             db_insert_file(user_id, file_data)
@@ -1255,7 +1260,7 @@ def handle_add_story(data):
     user_id = user_sessions.get(request.sid)
     if not user_id:
         return {'success': False, 'error': 'Not authenticated'}
-    story_id = str(uuid.uuid4())
+    story_id = str(uuid.uuid4())  # temporary local ID
     story = {
         'id':         story_id,
         'user_id':    user_id,
@@ -1266,7 +1271,11 @@ def handle_add_story(data):
     }
     if not story['file_data'] or not story['type']:
         return {'success': False, 'error': 'Invalid story data'}
-    db_insert_story(user_id, story)
+    # Persist and replace local id with Supabase-generated UUID
+    db_id = db_insert_story(user_id, story)
+    if db_id:
+        story['id'] = db_id
+        story_id    = db_id
     user_stories[user_id].append(story)
     story_views[story_id] = set()
     if len(user_stories[user_id]) > 10:

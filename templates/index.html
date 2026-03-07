@@ -2257,10 +2257,70 @@
             margin-top: 10px;
             opacity: 0.7;
         }
+        /* ── Global auth loader overlay ── */
+        
+        #auth-loader {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(10, 10, 30, 0.82);
+            backdrop-filter: blur(6px);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 18px;
+        }
+        
+        #auth-loader.active {
+            display: flex;
+        }
+        
+        .auth-spinner {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #06d6a0, #7c3aed, #06d6a0 360deg);
+            animation: spinLoader 0.9s linear infinite;
+            position: relative;
+        }
+        
+        .auth-spinner::after {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border-radius: 50%;
+            background: #0d0d1a;
+        }
+        
+        @keyframes spinLoader {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .auth-loader-text {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 0.95rem;
+            letter-spacing: 0.05em;
+            font-weight: 500;
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
     </style>
 </head>
 
 <body>
+    <!-- Global auth loading overlay -->
+    <div id="auth-loader">
+        <div class="auth-spinner"></div>
+        <div class="auth-loader-text" id="auth-loader-text">Please wait...</div>
+    </div>
+
     <!-- Login Screen -->
     <div id="login-screen">
         <div class="login-container" id="login-form">
@@ -2277,7 +2337,7 @@
                     <a onclick="showForgotPassword()" style="color: var(--accent); font-size: 0.85rem; cursor: pointer; text-decoration: none;">Forgot Password?</a>
                 </div>
             </div>
-            <button class="btn-primary" onclick="loginUser()">Login</button>
+            <button class="btn-primary" id="login-btn" onclick="loginUser()">Login</button>
             <div class="switch-mode">
                 Don't have an account? <a onclick="showRegister()">Register here</a>
             </div>
@@ -2293,7 +2353,7 @@
             </div>
             <div class="input-group">
                 <label>User ID</label>
-                <input type="text" id="reset-userid" placeholder="Enter your User ID">
+                <input type="text" id="reset-userid" placeholder="Enter your User ID (e.g. g7qix34)">
             </div>
             <div class="input-group">
                 <label>New Password</label>
@@ -2364,7 +2424,7 @@
                         <div class="info-label-small">ID:</div>
                         <div class="info-value-small">
                             <span id="my-id-display">ID: --------</span>
-                            <button class="copy-btn-small" onclick="copyToClipboard(myUserId, 'User ID')">
+                            <button class="copy-btn-small" onclick="copyToClipboard(myPublicId, 'User ID')">
                                 <i class="fas fa-copy"></i> Copy
                             </button>
                         </div>
@@ -2505,7 +2565,7 @@
                 <div class="user-info-item">
                     <div class="info-label">User ID:</div>
                     <div class="info-value" id="settings-userid">Loading...</div>
-                    <button class="copy-btn" onclick="copyToClipboard(myUserId, 'User ID')"><i class="fas fa-copy"></i> Copy</button>
+                    <button class="copy-btn" onclick="copyToClipboard(myPublicId, 'User ID')"><i class="fas fa-copy"></i> Copy</button>
                 </div>
                 <div class="user-info-item">
                     <div class="info-label">Email:</div>
@@ -2522,7 +2582,7 @@
                     <div class="user-id-verify">
                         <h4>Verify Your Identity</h4>
                         <div class="user-id-input">
-                            <input type="text" id="verify-userid" placeholder="Enter your User ID">
+                            <input type="text" id="verify-userid" placeholder="Enter your User ID (e.g. g7qix34)">
                             <button class="verify-btn" onclick="verifyUserID()" id="verify-btn">
                                 <i class="fas fa-check-circle"></i> Verify
                             </button>
@@ -2728,6 +2788,7 @@
     <script>
         let socket = null;
         let myUserId = null;
+        let myPublicId = null;
         let myUsername = null;
         let myEmail = null;
         let myJoinedDate = null;
@@ -2851,6 +2912,15 @@
             }
         }
 
+        function showLoader(text) {
+            document.getElementById('auth-loader-text').textContent = text || 'Please wait...';
+            document.getElementById('auth-loader').classList.add('active');
+        }
+
+        function hideLoader() {
+            document.getElementById('auth-loader').classList.remove('active');
+        }
+
         async function loginUser() {
             const username = document.getElementById('login-username').value.trim();
             const password = document.getElementById('login-password').value.trim();
@@ -2858,6 +2928,9 @@
                 showAlert("Please enter username and password", "error");
                 return;
             }
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            showLoader('Logging in...');
             try {
                 const res = await fetch('/login', {
                     method: 'POST',
@@ -2869,6 +2942,8 @@
                         password
                     })
                 });
+                hideLoader();
+                btn.disabled = false;
                 if (!res.ok) {
                     const error = await res.json();
                     showAlert(error.error || 'Login failed', "error");
@@ -2877,6 +2952,8 @@
                 const data = await res.json();
                 setupUser(data);
             } catch (error) {
+                hideLoader();
+                btn.disabled = false;
                 showAlert('Failed to connect to server', "error");
             }
         }
@@ -2898,11 +2975,9 @@
                 showAlert("Password must be at least 6 characters", "error");
                 return;
             }
-            // Show loading spinner
             const btn = document.getElementById('register-btn');
-            const origText = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:8px"></i>Creating account...';
+            showLoader('Creating your account...');
             try {
                 const res = await fetch('/register', {
                     method: 'POST',
@@ -2915,29 +2990,30 @@
                         password
                     })
                 });
+                hideLoader();
+                btn.disabled = false;
                 if (!res.ok) {
                     const error = await res.json();
                     showAlert(error.error || 'Registration failed', "error");
-                    btn.disabled = false;
-                    btn.innerHTML = origText;
                     return;
                 }
                 const data = await res.json();
                 setupUser(data);
                 showLogin();
             } catch (error) {
-                showAlert('Failed to connect to server', "error");
+                hideLoader();
                 btn.disabled = false;
-                btn.innerHTML = origText;
+                showAlert('Failed to connect to server', "error");
             }
         }
 
         function setupUser(data) {
             myUserId = data.user_id;
+            myPublicId = data.public_id || data.user_id;
             myUsername = data.username;
             myEmail = data.email;
             myJoinedDate = new Date(data.created_at).toLocaleDateString();
-            const displayId = data.public_id || data.user_id;
+            const displayId = myPublicId;
             document.getElementById('my-avatar').textContent = data.username.substring(0, 2).toUpperCase();
             document.getElementById('my-name-display').textContent = data.username;
             document.getElementById('my-id-display').textContent = displayId;
@@ -3376,7 +3452,7 @@
             const input = document.getElementById('verify-userid').value.trim();
             const verifyBtn = document.getElementById('verify-btn');
             const msg = document.getElementById('password-change-message');
-            if (input === myUserId) {
+            if (input === myPublicId) {
                 verifyBtn.disabled = true;
                 verifyBtn.innerHTML = '<i class="fas fa-check"></i> Verified';
                 verifyBtn.style.background = 'var(--accent)';
